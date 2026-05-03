@@ -17,11 +17,23 @@ import org.opensearch.indexmanagement.transform.model.Transform
 import org.opensearch.jobscheduler.spi.JobExecutionContext
 import org.opensearch.jobscheduler.spi.ScheduledJobParameter
 import org.opensearch.jobscheduler.spi.ScheduledJobRunner
+import java.util.function.Supplier
 
 object IndexManagementRunner : ScheduledJobRunner {
     private val logger = LogManager.getLogger(javaClass)
+    private var standbyModeEnabled: Supplier<Boolean> = Supplier { false }
+
+    fun registerStandbyModeSupplier(standbyModeEnabled: Supplier<Boolean>): IndexManagementRunner {
+        this.standbyModeEnabled = standbyModeEnabled
+        return this
+    }
 
     override fun runJob(job: ScheduledJobParameter, context: JobExecutionContext) {
+        if (standbyModeEnabled.get()) {
+            logger.debug("Index Management standby mode is enabled, skipping scheduled job [{}].", context.jobId)
+            return
+        }
+
         when (job) {
             is ManagedIndexConfig -> ManagedIndexRunner.runJob(job, context)
 
