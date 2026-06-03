@@ -147,6 +147,7 @@ import org.opensearch.indexmanagement.spi.indexstatemanagement.IndexMetadataServ
 import org.opensearch.indexmanagement.spi.indexstatemanagement.StatusChecker
 import org.opensearch.indexmanagement.spi.indexstatemanagement.metrics.IndexManagementActionsMetrics
 import org.opensearch.indexmanagement.spi.indexstatemanagement.model.ManagedIndexMetaData
+import org.opensearch.indexmanagement.standby.StandbyModeActionFilter
 import org.opensearch.indexmanagement.transform.TargetIndexMappingService
 import org.opensearch.indexmanagement.transform.TransformRunner
 import org.opensearch.indexmanagement.transform.action.delete.DeleteTransformsAction
@@ -198,6 +199,7 @@ import org.opensearch.transport.TransportInterceptor
 import org.opensearch.transport.TransportService
 import org.opensearch.transport.client.Client
 import org.opensearch.watcher.ResourceWatcherService
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.function.Supplier
 
 @Suppress("TooManyFunctions")
@@ -222,6 +224,8 @@ class IndexManagementPlugin :
     private val extensions = mutableSetOf<String>()
     private val extensionCheckerMap = mutableMapOf<String, StatusChecker>()
     lateinit var indexOperationActionFilter: IndexOperationActionFilter
+    lateinit var standbyModeActionFilter: StandbyModeActionFilter
+    private val standbyModeEnabled = AtomicBoolean(false)
     private lateinit var metricsRegistry: MetricsRegistry
 
     companion object {
@@ -398,6 +402,9 @@ class IndexManagementPlugin :
         val settings = environment.settings()
         this.metricsRegistry = metricsRegistry
         this.clusterService = clusterService
+        standbyModeEnabled.set(IndexManagementSettings.CLUSTER_STANDBY_MODE.get(settings))
+        clusterService.clusterSettings.addSettingsUpdateConsumer(IndexManagementSettings.CLUSTER_STANDBY_MODE, standbyModeEnabled::set)
+        IndexManagementRunner.registerStandbyModeSupplier(standbyModeEnabled::get)
         QueryShardContextFactory.init(
             client,
             clusterService,
@@ -494,6 +501,7 @@ class IndexManagementPlugin :
                 ActiveShardsObserver(clusterService, client.threadPool()),
                 indexNameExpressionResolver,
             )
+        standbyModeActionFilter = StandbyModeActionFilter(standbyModeEnabled::get)
 
         TargetIndexMappingService.initialize(client)
 
@@ -552,6 +560,7 @@ class IndexManagementPlugin :
         TransformSettings.TRANSFORM_JOB_SEARCH_BACKOFF_MILLIS,
         TransformSettings.TRANSFORM_CIRCUIT_BREAKER_ENABLED,
         TransformSettings.TRANSFORM_CIRCUIT_BREAKER_JVM_THRESHOLD,
+        IndexManagementSettings.CLUSTER_STANDBY_MODE,
         IndexManagementSettings.FILTER_BY_BACKEND_ROLES,
         LegacyOpenDistroManagedIndexSettings.HISTORY_ENABLED,
         LegacyOpenDistroManagedIndexSettings.HISTORY_INDEX_MAX_AGE,
@@ -628,7 +637,7 @@ class IndexManagementPlugin :
         threadContext: ThreadContext,
     ): List<TransportInterceptor> = listOf(rollupInterceptor)
 
-    override fun getActionFilters(): List<ActionFilter> = listOf(fieldCapsFilter, indexOperationActionFilter)
+    override fun getActionFilters(): List<ActionFilter> = listOf(standbyModeActionFilter, fieldCapsFilter, indexOperationActionFilter)
 
     override fun getSystemIndexDescriptors(settings: Settings): Collection<SystemIndexDescriptor> = listOf(
         SystemIndexDescriptor(

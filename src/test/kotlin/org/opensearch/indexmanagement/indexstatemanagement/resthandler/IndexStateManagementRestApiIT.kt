@@ -23,6 +23,7 @@ import org.opensearch.indexmanagement.indexstatemanagement.randomReadOnlyActionC
 import org.opensearch.indexmanagement.indexstatemanagement.randomState
 import org.opensearch.indexmanagement.indexstatemanagement.settings.ManagedIndexSettings
 import org.opensearch.indexmanagement.makeRequest
+import org.opensearch.indexmanagement.settings.IndexManagementSettings
 import org.opensearch.indexmanagement.util.NO_ID
 import org.opensearch.indexmanagement.util._ID
 import org.opensearch.indexmanagement.util._PRIMARY_TERM
@@ -77,6 +78,34 @@ class IndexStateManagementRestApiIT : IndexStateManagementRestTestCase() {
         assertEquals("incorrect primaryTerm", 1, createdPrimaryTerm)
 
         assertEquals("Incorrect Location header", "$POLICY_BASE_URI/$createdId", createResponse.getHeader("Location"))
+    }
+
+    fun `test standby mode rejects policy writes`() {
+        try {
+            updateClusterSetting(IndexManagementSettings.CLUSTER_STANDBY_MODE.key, "true", false)
+
+            val standbyException = expectThrows(ResponseException::class.java) {
+                client().makeRequest(
+                    "PUT",
+                    "$POLICY_BASE_URI/${OpenSearchTestCase.randomAlphaOfLength(10)}",
+                    emptyMap(),
+                    randomPolicy().toHttpEntity(),
+                )
+            }
+            assertEquals(RestStatus.FORBIDDEN, standbyException.response.restStatus())
+
+            updateClusterSetting(IndexManagementSettings.CLUSTER_STANDBY_MODE.key, "false", false)
+            val createResponse =
+                client().makeRequest(
+                    "PUT",
+                    "$POLICY_BASE_URI/${OpenSearchTestCase.randomAlphaOfLength(10)}",
+                    emptyMap(),
+                    randomPolicy().toHttpEntity(),
+                )
+            assertEquals(RestStatus.CREATED, createResponse.restStatus())
+        } finally {
+            updateClusterSetting(IndexManagementSettings.CLUSTER_STANDBY_MODE.key, "false", false)
+        }
     }
 
     @Throws(Exception::class)

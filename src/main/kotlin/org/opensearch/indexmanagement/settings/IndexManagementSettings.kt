@@ -9,6 +9,14 @@ import org.opensearch.common.settings.Setting
 @Suppress("UtilityClassWithPublicConstructor")
 class IndexManagementSettings {
     companion object {
+        val CLUSTER_STANDBY_MODE: Setting<Boolean> =
+            Setting.boolSetting(
+                "cluster.standby_mode",
+                false,
+                Setting.Property.NodeScope,
+                Setting.Property.Dynamic,
+            )
+
         val FILTER_BY_BACKEND_ROLES: Setting<Boolean> =
             Setting.boolSetting(
                 "plugins.index_management.filter_by_backend_roles",
